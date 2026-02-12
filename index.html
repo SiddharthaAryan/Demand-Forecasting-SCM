@@ -1,0 +1,354 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>SCM Strategy Lab Pro | Advanced Forecasting</title>
+    
+    <!-- Dependencies -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
+    
+    <!-- React & Charting Core -->
+    <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
+    <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
+    <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+
+    <style>
+        :root {
+            --bg-deep: #020617;
+            --accent-primary: #6366f1;
+            --accent-secondary: #ec4899;
+        }
+
+        body {
+            font-family: 'Inter', sans-serif;
+            background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, var(--bg-deep) 100%);
+            min-height: 100vh;
+            color: #f1f5f9;
+            overflow-x: hidden;
+        }
+
+        .glass {
+            background: rgba(15, 23, 42, 0.45);
+            backdrop-filter: blur(12px);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+        }
+
+        .metric-glow:hover {
+            border-color: rgba(99, 102, 241, 0.4);
+            box-shadow: 0 0 25px rgba(99, 102, 241, 0.15);
+        }
+
+        input[type='range'] {
+            -webkit-appearance: none;
+            background: rgba(30, 41, 59, 0.6);
+            height: 4px;
+            border-radius: 999px;
+            accent-color: var(--accent-primary);
+        }
+
+        input[type='range']::-webkit-slider-thumb {
+            -webkit-appearance: none;
+            height: 20px;
+            width: 20px;
+            border-radius: 50%;
+            background: #fff;
+            cursor: pointer;
+            box-shadow: 0 0 15px rgba(99, 102, 241, 0.8);
+            border: 3px solid var(--accent-primary);
+            transition: transform 0.2s ease;
+        }
+
+        input[type='range']::-webkit-slider-thumb:hover {
+            transform: scale(1.15);
+        }
+
+        @keyframes fadeInSlide {
+            from { opacity: 0; transform: translateY(20px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+
+        .animate-cascade {
+            animation: fadeInSlide 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+        }
+
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: rgba(99, 102, 241, 0.3);
+            border-radius: 10px;
+        }
+
+        .shimmer {
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
+            background-size: 200% 100%;
+            animation: shimmer 2s infinite;
+        }
+
+        @keyframes shimmer {
+            0% { background-position: -200% 0; }
+            100% { background-position: 200% 0; }
+        }
+    </style>
+<script type="importmap">
+{
+  "imports": {
+    "recharts": "https://esm.sh/recharts@^3.7.0",
+    "react-dom/": "https://esm.sh/react-dom@^19.2.4/",
+    "react/": "https://esm.sh/react@^19.2.4/",
+    "react": "https://esm.sh/react@^19.2.4"
+  }
+}
+</script>
+</head>
+<body>
+    <div id="root"></div>
+
+    <script type="text/babel">
+        const { useState, useMemo, useEffect } = React;
+        const { 
+          AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Line, ComposedChart, Dot
+        } = Recharts;
+
+        // --- Core Application Logic ---
+        
+        const BASE_DEMAND = [8000, 13000, 23000, 34000, 10000, 18000, 23000, 38000, 12000, 13000, 32000, 41000];
+        const SEASONAL_FACTORS = { Q1: 1.67, Q2: 0.47, Q3: 0.68, Q4: 1.17 };
+        const QUARTER_SEQUENCE = ["Q2", "Q3", "Q4", "Q1"];
+        const REGRESSION_L = 18439;
+        const REGRESSION_T = 524;
+
+        const METHODS = [
+            { id: 'ma', name: "Moving Average", formula: "Fₜ = (Dₜ₋₁ + ... + Dₜ₋ₖ) / k", insight: "Smooths random noise; suffers from lag in trendy markets." },
+            { id: 'wma', name: "Weighted Moving Average", formula: "Fₜ = Σ(wᵢ·Dₜ₋ᵢ) / Σwᵢ", insight: "Prioritizes recent data; faster reaction to shifts." },
+            { id: 'es', name: "Exp. Smoothing", formula: "Fₜ = αDₜ₋₁ + (1-α)Fₜ₋₁", insight: "Recursive weight decay. Ideal for short-term agile planning." },
+            { id: 'trend', name: "Trend Projection", formula: "Fₜ = L + Tt", insight: "Captures long-term trajectory; used for capacity planning." },
+            { id: 'seasonal', name: "Seasonality Hybrid", formula: "Fₜ = (L + Tt) × Sₜ", insight: "Gold standard for cyclic consumer demand patterns." }
+        ];
+
+        const calculateForecast = (data, method, param) => {
+            switch (method) {
+                case 'ma':
+                    return data.map((_, i) => i < param ? null : Math.round(data.slice(i - param, i).reduce((a, b) => a + b, 0) / param));
+                case 'wma':
+                    return data.map((_, i) => {
+                        if (i < param) return null;
+                        const weights = Array.from({ length: param }, (_, idx) => idx + 1);
+                        const weightSum = weights.reduce((a, b) => a + b, 0);
+                        let weightedSum = 0;
+                        for (let j = 0; j < param; j++) weightedSum += data[i - param + j] * weights[j];
+                        return Math.round(weightedSum / weightSum);
+                    });
+                case 'es': {
+                    const alpha = 1 / param;
+                    let f = [data[0]];
+                    for (let i = 1; i < data.length; i++) {
+                        f.push(Math.round(alpha * data[i - 1] + (1 - alpha) * (f[i - 1] || data[0])));
+                    }
+                    return f;
+                }
+                case 'trend':
+                    return data.map((_, i) => Math.round(REGRESSION_L + REGRESSION_T * (i + 1)));
+                case 'seasonal':
+                    return data.map((_, i) => Math.round((REGRESSION_L + REGRESSION_T * (i + 1)) * SEASONAL_FACTORS[QUARTER_SEQUENCE[i % 4]]));
+                default: return Array(data.length).fill(null);
+            }
+        };
+
+        const calculateErrors = (actual, forecast) => {
+            let n = 0, sumAbs = 0, sumSq = 0, sumPct = 0;
+            actual.forEach((val, i) => {
+                if (forecast[i] !== null) {
+                    const e = val - forecast[i];
+                    n++;
+                    sumAbs += Math.abs(e);
+                    sumSq += e * e;
+                    sumPct += Math.abs(e / val);
+                }
+            });
+            if (n === 0) return { MAD: '0', MSE: '0', MAPE: '0%' };
+            return {
+                MAD: (sumAbs / n).toLocaleString(undefined, { maximumFractionDigits: 1 }),
+                MSE: (sumSq / n).toLocaleString(undefined, { maximumFractionDigits: 0 }),
+                MAPE: ((sumPct / n) * 100).toFixed(2) + '%'
+            };
+        };
+
+        // --- UI Components ---
+
+        const MetricCard = ({ label, value, desc, color }) => {
+            const themes = {
+                indigo: 'from-indigo-500/10 to-transparent border-indigo-500/20 text-indigo-300',
+                purple: 'from-purple-500/10 to-transparent border-purple-500/20 text-purple-300',
+                pink: 'from-pink-500/10 to-transparent border-pink-500/20 text-pink-300'
+            };
+            return (
+                <div className={`glass rounded-3xl p-6 border bg-gradient-to-br ${themes[color]} transition-all duration-300 metric-glow group`}>
+                    <p className="text-[10px] font-black uppercase tracking-[0.2em] opacity-50 group-hover:opacity-100 transition-opacity mb-2">{label}</p>
+                    <p className="text-4xl font-black text-white tracking-tighter mb-1">{value}</p>
+                    <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest">{desc}</p>
+                </div>
+            );
+        };
+
+        const App = () => {
+            const [method, setMethod] = useState('ma');
+            const [param, setParam] = useState(3);
+            const [shock, setShock] = useState(41000);
+            const [isHydrating, setIsHydrating] = useState(true);
+
+            useEffect(() => {
+                const timer = setTimeout(() => setIsHydrating(false), 300);
+                return () => clearTimeout(timer);
+            }, []);
+
+            const activeMethod = useMemo(() => METHODS.find(m => m.id === method), [method]);
+            const demandData = useMemo(() => {
+                const d = [...BASE_DEMAND];
+                d[d.length - 1] = shock;
+                return d;
+            }, [shock]);
+
+            const forecastData = useMemo(() => calculateForecast(demandData, method, param), [demandData, method, param]);
+            const errors = useMemo(() => calculateErrors(demandData, forecastData), [demandData, forecastData]);
+            
+            const chartData = useMemo(() => demandData.map((val, i) => ({
+                period: `P${i + 1}`,
+                actual: val,
+                forecast: forecastData[i]
+            })), [demandData, forecastData]);
+
+            if (isHydrating) return null;
+
+            return (
+                <div className="max-w-7xl mx-auto px-6 py-12 flex flex-col min-h-screen">
+                    {/* Header */}
+                    <header className="mb-14 animate-cascade">
+                        <div className="flex items-center gap-4 mb-5">
+                            <div className="h-12 w-12 rounded-2xl bg-gradient-to-tr from-indigo-600 to-purple-500 flex items-center justify-center shadow-2xl shadow-indigo-500/30">
+                                <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                                </svg>
+                            </div>
+                            <div className="h-0.5 w-12 bg-indigo-500/30 rounded-full"></div>
+                            <span className="text-xs uppercase tracking-[0.4em] font-black text-indigo-400">Forecasting Lab V3.1</span>
+                        </div>
+                        <h1 className="text-5xl md:text-7xl font-black tracking-tighter text-white mb-4">
+                            Strategy <span className="bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">Optimization</span>
+                        </h1>
+                        <p className="text-slate-400 text-lg md:text-xl font-medium max-w-2xl leading-relaxed">
+                            A high-fidelity analytical workbench for testing model sensitivity against market fluctuations and structural demand shocks.
+                        </p>
+                    </header>
+
+                    {/* Dashboard Layout */}
+                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-10 items-start">
+                        
+                        {/* Sidebar Controls */}
+                        <aside className="lg:col-span-4 space-y-8 animate-cascade" style={{ animationDelay: '0.1s' }}>
+                            <div className="glass rounded-[2.5rem] p-10 space-y-10">
+                                <div>
+                                    <label className="text-[11px] uppercase tracking-[0.2em] text-indigo-300 font-black mb-4 block">Demand Model</label>
+                                    <select 
+                                        value={method}
+                                        onChange={(e) => setMethod(e.target.value)}
+                                        className="w-full bg-slate-900 border border-slate-700/50 rounded-2xl px-5 py-4 text-white focus:ring-2 focus:ring-indigo-500 transition-all outline-none font-bold text-sm shadow-inner"
+                                    >
+                                        {METHODS.map(m => <option key={m.id} value={m.id}>{m.name}</option>)}
+                                    </select>
+                                </div>
+
+                                <div className="space-y-6">
+                                    <div className="flex justify-between items-center">
+                                        <label className="text-[11px] uppercase tracking-[0.2em] text-indigo-300 font-black">Sensitivity (k/α)</label>
+                                        <span className="text-xs font-mono font-bold bg-indigo-500/20 text-indigo-300 px-3 py-1.5 rounded-xl border border-indigo-500/20">{param}</span>
+                                    </div>
+                                    <input type="range" min="2" max="8" value={param} onChange={(e) => setParam(parseInt(e.target.value))} className="w-full" />
+                                </div>
+
+                                <div className="space-y-6">
+                                    <div className="flex justify-between items-center">
+                                        <label className="text-[11px] uppercase tracking-[0.2em] text-pink-300 font-black">Market Impulse</label>
+                                        <span className="text-xs font-mono font-bold bg-pink-500/20 text-pink-300 px-3 py-1.5 rounded-xl border border-pink-500/20">{shock.toLocaleString()}</span>
+                                    </div>
+                                    <input type="range" min="10000" max="60000" step="500" value={shock} onChange={(e) => setShock(parseInt(e.target.value))} className="w-full" />
+                                </div>
+
+                                <div className="pt-4">
+                                    <div className="p-6 bg-slate-950/80 rounded-3xl border border-slate-800 space-y-4">
+                                        <div className="flex items-center gap-2">
+                                            <div className="w-2 h-2 rounded-full bg-pink-500 shadow-[0_0_8px_rgba(236,72,153,0.5)]"></div>
+                                            <span className="text-[10px] font-black uppercase tracking-widest text-slate-500">Math Reference</span>
+                                        </div>
+                                        <p className="text-white font-mono text-sm font-bold bg-slate-900/50 p-3 rounded-xl border border-slate-800/50">{activeMethod.formula}</p>
+                                        <p className="text-slate-400 text-xs italic leading-relaxed font-medium">"{activeMethod.insight}"</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </aside>
+
+                        {/* Main Analysis Panel */}
+                        <main className="lg:col-span-8 space-y-10 animate-cascade" style={{ animationDelay: '0.2s' }}>
+                            
+                            {/* Chart Card */}
+                            <div className="glass rounded-[3rem] p-10 h-[560px] relative overflow-hidden group">
+                                <div className="absolute inset-0 shimmer opacity-10 pointer-events-none"></div>
+                                <div className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-12 relative z-10">
+                                    <h2 className="text-xl font-black text-white flex items-center gap-3 tracking-tight">
+                                        <div className="w-2 h-8 bg-indigo-500 rounded-full shadow-[0_0_15px_rgba(99,102,241,0.5)]"></div>
+                                        Dynamic Sensitivity Trace
+                                    </h2>
+                                    <div className="flex items-center gap-10">
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-3 h-3 rounded-full bg-indigo-500 ring-4 ring-indigo-500/10"></div>
+                                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Actual Demand</span>
+                                        </div>
+                                        <div className="flex items-center gap-3">
+                                            <div className="w-3 h-3 rounded-full border-2 border-pink-500 border-dashed"></div>
+                                            <span className="text-[10px] font-black text-slate-400 uppercase tracking-[0.2em]">Model Forecast</span>
+                                        </div>
+                                    </div>
+                                </div>
+
+                                <div className="h-[380px] w-full relative z-10">
+                                    <ResponsiveContainer width="100%" height="100%">
+                                        <AreaChart data={chartData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+                                            <defs>
+                                                <linearGradient id="areaColor" x1="0" y1="0" x2="0" y2="1">
+                                                    <stop offset="5%" stopColor="#6366f1" stopOpacity={0.4}/>
+                                                    <stop offset="95%" stopColor="#6366f1" stopOpacity={0}/>
+                                                </linearGradient>
+                                            </defs>
+                                            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="rgba(255,255,255,0.03)" />
+                                            <XAxis 
+                                                dataKey="period" 
+                                                axisLine={false} 
+                                                tickLine={false} 
+                                                tick={{fill: '#64748b', fontSize: 11, fontWeight: 800}} 
+                                                dy={15} 
+                                            />
+                                            <YAxis 
+                                                axisLine={false} 
+                                                tickLine={false} 
+                                                tick={{fill: '#64748b', fontSize: 11, fontWeight: 800}} 
+                                                dx={-5} 
+                                            />
+                                            <Tooltip 
+                                                contentStyle={{ 
+                                                    backgroundColor: 'rgba(2, 6, 23, 0.9)', 
+                                                    border: '1px solid rgba(255, 255, 255, 0.1)', 
+                                                    borderRadius: '24px', 
+                                                    color: '#fff',
+                                                    backdropFilter: 'blur(10px)',
+                                                    padding: '16px 20px',
+                                                    boxShadow: '0 20px 40px -10px rgba(0,0,0,0.5)'
+                                                }}
+                                                itemStyle={{ fontWeight: 800, fontSize: 12 }}
+                                                cursor={{ stroke: '#6366f1', strokeWidth: 2, strokeDasharray: '5 5' }}
+                                            />
+                                            <Area 
+                                                t
