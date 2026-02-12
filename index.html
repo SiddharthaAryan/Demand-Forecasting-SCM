@@ -1,40 +1,270 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>SCM Strategy Lab Pro | Advanced Forecasting</title>
-    
-    <!-- Dependencies -->
-    <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet">
-    
-    <!-- React & Charting Core -->
-    <script src="https://unpkg.com/react@18.2.0/umd/react.production.min.js"></script>
-    <script src="https://unpkg.com/react-dom@18.2.0/umd/react-dom.production.min.js"></script>
-    <script src="https://unpkg.com/recharts@2.12.7/umd/Recharts.js"></script>
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+<meta charset="UTF-8">
+<title>SCM Forecasting Strategy Lab - Pro</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 
-    <style>
-        :root {
-            --bg-deep: #020617;
-            --accent-primary: #6366f1;
-            --accent-secondary: #ec4899;
-        }
+<style>
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
 
-        body {
-            font-family: 'Inter', sans-serif;
-            background: radial-gradient(circle at 50% 0%, #1e1b4b 0%, var(--bg-deep) 100%);
-            min-height: 100vh;
-            color: #f1f5f9;
-            overflow-x: hidden;
-        }
+:root{
+ --bg:#020617;
+ --card:rgba(15,23,42,0.75);
+ --accent:#6366f1;
+ --accent2:#8b5cf6;
+ --muted:#94a3b8;
+ --border:rgba(148,163,184,0.15);
+}
 
-        .glass {
-            background: rgba(15, 23, 42, 0.45);
-            backdrop-filter: blur(12px);
-            border: 1px solid rgba(255, 255, 255, 0.08);
-            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
+body{
+ font-family:'Inter',sans-serif;
+ background:radial-gradient(circle at top,#0f172a,#020617 70%);
+ color:#f1f5f9;
+ padding:30px;
+ margin:0;
+}
+
+h1{
+ font-size:30px;
+ font-weight:800;
+ background:linear-gradient(90deg,#818cf8,#c084fc);
+ -webkit-background-clip:text;
+ -webkit-text-fill-color:transparent;
+}
+
+.subtitle{
+ color:var(--muted);
+ margin-bottom:25px;
+ font-size:14px;
+}
+
+.grid{
+ display:grid;
+ grid-template-columns:380px 1fr;
+ gap:24px;
+}
+
+.card{
+ background:var(--card);
+ backdrop-filter:blur(20px);
+ border-radius:22px;
+ padding:22px;
+ border:1px solid var(--border);
+ box-shadow:0 25px 60px rgba(0,0,0,.5);
+}
+
+label{
+ font-size:12px;
+ color:var(--muted);
+}
+
+select,input[type=range]{
+ width:100%;
+ margin-top:8px;
+ margin-bottom:12px;
+}
+
+input[type=range]{
+ accent-color:var(--accent);
+}
+
+button{
+ padding:12px 16px;
+ border-radius:14px;
+ border:none;
+ font-weight:600;
+ cursor:pointer;
+ background:linear-gradient(90deg,var(--accent),var(--accent2));
+ color:white;
+}
+
+.metrics{
+ margin-top:18px;
+ background:#0f172a;
+ padding:12px;
+ border-radius:16px;
+ border:1px solid var(--border);
+ font-size:13px;
+}
+
+.section-title{
+ font-weight:600;
+ margin-top:16px;
+ margin-bottom:8px;
+ font-size:14px;
+ color:#cbd5e1;
+}
+
+canvas{
+ background:#0f172a;
+ border-radius:18px;
+ padding:10px;
+}
+</style>
+</head>
+
+<body>
+
+<h1>SCM Forecasting Strategy Lab</h1>
+<div class="subtitle">Forecasting Models + Managerial Strategy Insights</div>
+
+<div class="grid">
+
+<div class="card">
+
+<label>Forecasting Method</label>
+<select id="method" onchange="updateContent()">
+<option value="ma">Moving Average</option>
+<option value="wma">Weighted Moving Average</option>
+<option value="es">Exponential Smoothing</option>
+<option value="trend">Trend Projection</option>
+<option value="seasonal">Trend + Seasonality</option>
+</select>
+
+<label>Parameter (Window / α)</label>
+<input id="param" type="range" min="2" max="6" step="1" value="3"
+ oninput="paramVal.innerText=this.value">
+<div>Value: <b id="paramVal">3</b></div>
+
+<label>Last Demand Shock</label>
+<input id="shock" type="range" min="20000" max="55000" step="1000" value="41000"
+ oninput="shockVal.innerText=this.value">
+<div>Demand: <b id="shockVal">41000</b></div>
+
+<br>
+<button onclick="run()">Simulate</button>
+
+<div class="section-title">Formula Used</div>
+<div id="formula"></div>
+
+<div class="section-title">Managerial Insight</div>
+<div id="insight"></div>
+
+<div class="section-title">Forecast Error Metrics</div>
+<div class="metrics" id="metrics"></div>
+
+</div>
+
+<div class="card">
+<canvas id="chart" height="380"></canvas>
+</div>
+
+</div>
+
+<script>
+const BASE=[8000,13000,23000,34000,10000,18000,23000,38000,12000,13000,32000,41000];
+const S={Q1:1.67,Q2:0.47,Q3:0.68,Q4:1.17};
+const QUARTERS=["Q2","Q3","Q4","Q1"];
+const L=18439,T=524;
+let chart;
+
+const formulas={
+ ma:"Fₜ = (Dₜ₋₁ + ... + Dₜ₋ₖ) / k",
+ wma:"Fₜ = Σ(wᵢ·Dₜ₋ᵢ) / Σwᵢ",
+ es:"Fₜ = αDₜ₋₁ + (1-α)Fₜ₋₁",
+ trend:"Fₜ = L + Tt",
+ seasonal:"Fₜ = (L + Tt) × Sₜ"
+};
+
+const insights={
+ ma:"Best for stable demand. High stability, slow reaction. Risk of lag during sudden shocks.",
+ wma:"Gives priority to recent data. Balanced responsiveness & stability.",
+ es:"α controls reaction speed. High α increases responsiveness but risk of bullwhip.",
+ trend:"Captures structural growth. Ignores seasonality and short-term volatility.",
+ seasonal:"Most realistic. Combines growth + cyclic demand. Suitable for mature supply chains."
+};
+
+function movingAverage(data,k){
+ return data.map((_,i)=> i<k?null:
+ Math.round(data.slice(i-k,i).reduce((a,b)=>a+b,0)/k));
+}
+
+function weightedMA(data,k){
+ let w=[...Array(k).keys()].map(i=>i+1);
+ let ws=w.reduce((a,b)=>a+b,0);
+ return data.map((_,i)=>{
+  if(i<k) return null;
+  let s=0;for(let j=0;j<k;j++) s+=data[i-k+j]*w[j];
+  return Math.round(s/ws);
+ });
+}
+
+function expSmooth(data,a){
+ let f=[data[0]];
+ for(let i=1;i<data.length;i++)
+  f.push(Math.round(a*data[i-1]+(1-a)*f[i-1]));
+ return f;
+}
+
+function calculateErrors(actual,forecast){
+ let n=0,sumAbs=0,sumSq=0,sumPct=0;
+ for(let i=0;i<actual.length;i++){
+  if(forecast[i]!=null){
+   let e=actual[i]-forecast[i];
+   n++;
+   sumAbs+=Math.abs(e);
+   sumSq+=e*e;
+   sumPct+=Math.abs(e/actual[i]);
+  }
+ }
+ let MAD=(sumAbs/n).toFixed(2);
+ let MSE=(sumSq/n).toFixed(2);
+ let MAPE=((sumPct/n)*100).toFixed(2);
+ return {MAD,MSE,MAPE};
+}
+
+function run(){
+ let data=BASE.slice();
+ data[data.length-1]=Number(shock.value);
+ let m=method.value,k=Number(param.value);
+ let forecast=[];
+
+ if(m==="ma") forecast=movingAverage(data,k);
+ if(m==="wma") forecast=weightedMA(data,k);
+ if(m==="es") forecast=expSmooth(data,1/k);
+ if(m==="trend") forecast=data.map((_,i)=>Math.round(L+T*(i+1)));
+ if(m==="seasonal") forecast=data.map((_,i)=>
+  Math.round((L+T*(i+1))*S[QUARTERS[i%4]]));
+
+ let errors=calculateErrors(data,forecast);
+ metrics.innerHTML=
+  "MAD: "+errors.MAD+"<br>"+
+  "MSE: "+errors.MSE+"<br>"+
+  "MAPE: "+errors.MAPE+"%";
+
+ if(chart) chart.destroy();
+
+ chart=new Chart(chartEl,{
+  type:"line",
+  data:{labels:data.map((_,i)=>"P"+(i+1)),
+   datasets:[
+    {label:"Actual Demand",data,borderWidth:3,tension:0.4},
+    {label:"Forecast",data:forecast,borderDash:[6,4],borderWidth:3,tension:0.4}
+   ]},
+  options:{
+   plugins:{legend:{labels:{color:"#f1f5f9"}}},
+   scales:{
+    x:{ticks:{color:"#94a3b8"},grid:{color:"rgba(148,163,184,0.1)"}},
+    y:{ticks:{color:"#94a3b8"},grid:{color:"rgba(148,163,184,0.1)"}}
+   }
+  }
+ });
+}
+
+function updateContent(){
+ formula.innerText=formulas[method.value];
+ insight.innerText=insights[method.value];
+ run();
+}
+
+const chartEl=document.getElementById("chart");
+updateContent();
+</script>
+
+</body>
+</html>            box-shadow: 0 8px 32px 0 rgba(0, 0, 0, 0.4);
         }
 
         .metric-glow:hover {
